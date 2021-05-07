@@ -1,5 +1,6 @@
 buildscript {
   repositories {
+    gradlePluginPortal()
     maven {
       url "https://plugins.gradle.org/m2/"
     }
@@ -11,7 +12,6 @@ buildscript {
 
 apply plugin: "org.hasnat.php-build-plugin"
 apply plugin: "distribution"
-apply plugin: "maven-publish"
 
 def majorVersion = System.getenv("MAJOR_VERSION") ?: "1"
 def minorVersion = System.getenv("MINOR_VERSION") ?: "0"
@@ -22,12 +22,23 @@ task purge(type:Delete) {
   delete 'vendor', 'logs', 'build'
 }
 
-task installDeps(type: org.swissphpfriends.gradle.task.ComposerInstall) {
-    workingDirectory = "./project"
-    doNotUpdatePhar = true
+task composer(type:Exec, dependsOn: purge) {
+  //println 'Setting up dependencies'
+  executable 'sh'
+  args '-c', 'php -r "readfile(\'https://getcomposer.org/installer\');" | php'
+  standardOutput = new ByteArrayOutputStream()
+  ext.output = { return standardOutput.toString() }
 }
 
-task test(type:Exec, dependsOn: installDeps) {
+task vendor(type:Exec, dependsOn: composer) {
+  //println 'Installing dependencies'
+  executable 'sh'
+  args '-c', 'php composer.phar update'
+  standardOutput = new ByteArrayOutputStream()
+  ext.output = { return standardOutput.toString() }
+}
+
+/*task test(type:Exec, dependsOn: vendor) {
   //println 'Executing tests'
   executable 'sh'
   args '-c', "php \
@@ -35,47 +46,31 @@ task test(type:Exec, dependsOn: installDeps) {
     --configuration='./project/phpunit.xml' \
     --log-junit='./logs/unitreport.xml'\
     ./project/tests"
-}
+}*/
 
 def tarfile = "application-" + version
-task packageDistribution(type: Zip, dependsOn: test) {
+task packageDistribution(type: Zip, dependsOn: vendor) {
     archiveFileName = tarfile + ".zip"
-    destinationDirectory = file("project/build")
+    destinationDirectory = file("build")
 
-    from ('project/app') { into 'app' }
-    from ('project/bootstrap') { into 'bootstrap' }
-    from ('project/config') { into 'config' }
-      from ('project/database') { into 'database' }
-      from ('project/nbproject') { into 'nbproject' }
-      from ('project/public') { into 'public' }
-      from ('project/resources') { into 'resources' }
-      from ('project/storage') {
+    from ('app') { into 'app' }
+    from ('bootstrap') { into 'bootstrap' }
+    from ('config') { into 'config' }
+      from ('database') { into 'database' }
+      from ('nbproject') { into 'nbproject' }
+      from ('public') { into 'public' }
+      from ('resources') { into 'resources' }
+      from ('storage') {
         into 'storage'
         dirMode 0775
       }
-      from ('project/vendor') { into 'vendor' }
-      from { 'project/server.php' }
+      from ('vendor') { into 'vendor' }
+      from { 'server.php' }
 }
 
-group = 'laravel-kingoludo'
-
-publishing {
-    publications {
-        maven(MavenPublication) {
-            artifact source: packageDistribution, extension: 'zip'
-        }
-    }
-    repositories {
-        maven {
-            //credentials {
-            //    username nexusUsername
-            //    password nexusPassword
-            //}
-            url nexusRepo
-        }
-    }
+task up(type:Exec, dependsOn: packageDistribution) {
+executable 'sh'
+args '-c', 'curl -v --user "admin:xennonia71*" --upload-file build/application-1.0.zip http://192.168.0.44:8081/repository/repotestjenkins/app01/application-1.0.zip'
+standardOutput = new ByteArrayOutputStream()
+ext.output = { return standardOutput.toString() }
 }
-
-assemble.dependsOn packageDistribution
-build.dependsOn assemble
-publish.dependsOn build
